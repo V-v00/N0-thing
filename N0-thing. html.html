@@ -3,16 +3,14 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>N0-thing (Y2K Glitch Kitten Rain)</title>
+    <title>N0-thing (Healing Pink Rain & Drops)</title>
     <style>
         body {
             margin: 0;
             padding: 0;
-            /* 梦核感深邃渐变背景 */
             background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
             overflow: hidden;
             cursor: default; 
-            /* 防止移动端长按选中文本或出现菜单 */
             user-select: none;
             -webkit-user-select: none;
             touch-action: none; 
@@ -20,8 +18,6 @@
         canvas {
             display: block;
         }
-
-        /* 柔和的老式显像管扫描线 */
         .crt-scanlines {
             position: fixed;
             top: 0;
@@ -45,6 +41,88 @@
     <canvas id="matrixCanvas"></canvas>
 
     <script>
+        // --- Web Audio API 音效系统 ---
+        let audioCtx;
+        let isAudioInitialized = false;
+
+        function initAudio() {
+            if (isAudioInitialized) return;
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            
+            // 1. 生成并播放治愈的雨声 (粉红噪音 Pink Noise)
+            // 粉红噪音比白噪音更接近自然界的声音分布，高频平滑衰减，听起来像真实的细雨
+            const bufferSize = audioCtx.sampleRate * 2; 
+            const noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+            const output = noiseBuffer.getChannelData(0);
+            
+            let b0 = 0, b1 = 0, b2 = 0, b3 = 0, b4 = 0, b5 = 0, b6 = 0;
+            for (let i = 0; i < bufferSize; i++) {
+                let white = Math.random() * 2 - 1;
+                // Paul Kellet 逼近粉红噪音算法
+                b0 = 0.99886 * b0 + white * 0.0555179;
+                b1 = 0.99332 * b1 + white * 0.0750759;
+                b2 = 0.96900 * b2 + white * 0.1538520;
+                b3 = 0.86650 * b3 + white * 0.3104856;
+                b4 = 0.55000 * b4 + white * 0.5329522;
+                b5 = -0.7616 * b5 - white * 0.0168980;
+                output[i] = b0 + b1 + b2 + b3 + b4 + b5 + b6 + white * 0.5362;
+                output[i] *= 0.11; // 归一化防止爆音
+                b6 = white * 0.115926;
+            }
+
+            const noiseSource = audioCtx.createBufferSource();
+            noiseSource.buffer = noiseBuffer;
+            noiseSource.loop = true; 
+
+            // 稍微过滤掉极高频，让雨声更温润，不刺耳
+            const filter = audioCtx.createBiquadFilter();
+            filter.type = 'lowpass';
+            filter.frequency.value = 2500; 
+
+            const volumeControl = audioCtx.createGain();
+            volumeControl.gain.value = 0.3; // 治愈系背景音量
+
+            noiseSource.connect(filter);
+            filter.connect(volumeControl);
+            volumeControl.connect(audioCtx.destination);
+            noiseSource.start();
+
+            isAudioInitialized = true;
+            
+            document.removeEventListener('touchstart', initAudio);
+            document.removeEventListener('click', initAudio);
+        }
+
+        document.addEventListener('touchstart', initAudio, { once: true });
+        document.addEventListener('click', initAudio, { once: true });
+
+        // 2. 合成水滴声 (保持不变)
+        function playDropSound() {
+            if (!audioCtx || audioCtx.state === 'suspended') return;
+
+            const t = audioCtx.currentTime;
+            const osc = audioCtx.createOscillator();
+            const gainNode = audioCtx.createGain();
+
+            osc.type = 'sine'; 
+
+            const baseFreq = 400 + Math.random() * 250; 
+
+            osc.frequency.setValueAtTime(baseFreq, t);
+            osc.frequency.exponentialRampToValueAtTime(baseFreq * 2.5, t + 0.08);
+
+            gainNode.gain.setValueAtTime(0, t);
+            gainNode.gain.linearRampToValueAtTime(0.8, t + 0.01);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, t + 0.15);
+
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+
+            osc.start(t);
+            osc.stop(t + 0.15); 
+        }
+        // ------------------------------
+
         const canvas = document.getElementById('matrixCanvas');
         const ctx = canvas.getContext('2d');
 
@@ -76,111 +154,71 @@
         const cats = [];
         let mouseX = -1000;
         let mouseY = -1000;
+        let lastInteractX = -1000;
+        let lastInteractY = -1000;
 
-        // --- 鼠标交互事件 ---
-        window.addEventListener('mousemove', (e) => {
-            mouseX = e.clientX;
-            mouseY = e.clientY;
-        });
-
-        window.addEventListener('mouseout', () => {
-            mouseX = -1000;
-            mouseY = -1000;
-        });
-
-        // --- 移动端触屏交互事件 (新增适配) ---
-        window.addEventListener('touchmove', (e) => {
-            e.preventDefault(); // 防止屏幕滚动
-            mouseX = e.touches[0].clientX;
-            mouseY = e.touches[0].clientY;
-        }, { passive: false });
-
-        window.addEventListener('touchend', () => {
-            mouseX = -1000;
-            mouseY = -1000;
-        });
-        
-        window.addEventListener('touchcancel', () => {
-            mouseX = -1000;
-            mouseY = -1000;
-        });
-
-        // 声音播放
-        function playKittenEcho() {
-            if (!window.speechSynthesis) return;
-            window.speechSynthesis.cancel(); 
-
-            const speak = (vol, rateMultiplier) => {
-                const utterance = new SpeechSynthesisUtterance("nothing");
-                utterance.pitch = 2.0; 
-                utterance.rate = 1.5 * rateMultiplier;  
-                utterance.volume = vol;
-                window.speechSynthesis.speak(utterance);
-            };
-
-            speak(1.0, 1.0); 
-            setTimeout(() => speak(0.4, 0.95), 20); 
-            setTimeout(() => speak(0.15, 0.9), 50); 
-            setTimeout(() => speak(0.05, 0.8), 90); 
-            setTimeout(() => speak(0.01, 0.6), 140); 
-        }
-
-        function drawCatHead(ctx, x, y, alpha) {
-            ctx.save();
-            ctx.globalAlpha = alpha;
-            ctx.translate(x, y);
-            
-            const rippleScale = 0.5 + (1.0 - alpha) * 0.8; 
-            ctx.scale(rippleScale, rippleScale);
-            
-            ctx.lineWidth = 2;
-            ctx.lineJoin = 'round'; 
-            ctx.lineCap = 'round';
-            
-            const catFillColor = '#1a1835';
-            
-            ctx.fillStyle = catFillColor;
-            ctx.strokeStyle = '#FFF';
+        function traceCatFace(ctx) {
             ctx.beginPath();
             ctx.moveTo(-36, -20); 
             ctx.arcTo(-24, -50, -8, -36, 6); 
             ctx.lineTo(-8, -36); 
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.beginPath();
+            
             ctx.moveTo(36, -20); 
             ctx.arcTo(24, -50, 8, -36, 6); 
             ctx.lineTo(8, -36); 
-            ctx.closePath();
-            ctx.fill();
-            ctx.stroke();
-
-            ctx.fillStyle = catFillColor;
-            ctx.strokeStyle = '#FFF';
-            ctx.beginPath();
+            
             ctx.ellipse(0, 0, 42, 38, 0, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
+        }
 
-            ctx.strokeStyle = '#FFF';
-            ctx.lineWidth = 3;
+        function traceCatFaceDetails(ctx) {
             ctx.beginPath();
             ctx.roundRect(-30, -10, 26, 22, 5); 
             ctx.roundRect(4, -10, 26, 22, 5);
-            ctx.stroke();
-            
-            ctx.beginPath();
             ctx.moveTo(-4, 1);
             ctx.lineTo(4, 1);
-            ctx.stroke();
+        }
 
+        function drawCatHead(ctx, x, y, alpha) {
+            let progress = 1.0 - alpha; 
+            let easeOut = 1 - Math.pow(1 - progress, 3); 
+
+            ctx.lineJoin = 'round'; 
+            ctx.lineCap = 'round';
+
+            let rippleAlpha = Math.max(0, alpha - progress * 0.5); 
+            if (rippleAlpha > 0) {
+                let rippleScale = 0.25 + easeOut * 0.4; 
+                ctx.save();
+                ctx.translate(x, y);
+                ctx.scale(rippleScale, rippleScale);
+                ctx.lineWidth = 1.5;
+                ctx.strokeStyle = `rgba(255, 255, 255, ${rippleAlpha * 0.6})`; 
+                traceCatFace(ctx);
+                ctx.stroke();
+                ctx.restore();
+            }
+
+            let mainScale = 0.25 + easeOut * 0.15; 
+            
+            ctx.save();
+            ctx.translate(x, y);
+            ctx.scale(mainScale, mainScale);
+            
+            ctx.lineWidth = 2;
+            ctx.strokeStyle = `rgba(255, 255, 255, ${alpha})`;
+            ctx.fillStyle = `rgba(26, 24, 53, ${alpha})`;
+            traceCatFace(ctx);
+            ctx.fill();
+            ctx.stroke();
+            
+            ctx.lineWidth = 3;
+            traceCatFaceDetails(ctx);
+            ctx.stroke();
+            
             ctx.restore();
         }
 
-        // 统一处理点击和触屏开始事件
-        function handleInteraction(x, y) {
+        function handleInteraction(x, y, isMoveEvent = false) {
             const col = Math.floor(x / fontSize);
             const row = Math.floor(y / fontSize);
             const now = Date.now();
@@ -195,23 +233,53 @@
             cats.push({
                 x: x,
                 y: y,
-                alpha: 1.0 
+                // 修改：恢复划过交互时的透明度
+                alpha: isMoveEvent ? 0.35 : 1.0 
             });
 
-            playKittenEcho();
+            if (!isMoveEvent) {
+                playDropSound();
+            }
+        }
+
+        function checkAndTriggerMove(x, y) {
+            mouseX = x;
+            mouseY = y;
+            
+            const dist = Math.hypot(x - lastInteractX, y - lastInteractY);
+            if (dist > 60) {
+                handleInteraction(x, y, true);
+                lastInteractX = x;
+                lastInteractY = y;
+            }
         }
 
         window.addEventListener('click', (e) => {
-            handleInteraction(e.clientX, e.clientY);
+            lastInteractX = e.clientX;
+            lastInteractY = e.clientY;
+            handleInteraction(e.clientX, e.clientY, false);
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            checkAndTriggerMove(e.clientX, e.clientY);
         });
 
         window.addEventListener('touchstart', (e) => {
-            e.preventDefault(); // 阻止默认的触屏点击事件，避免与click重复触发
             const touch = e.touches[0];
-            mouseX = touch.clientX;
-            mouseY = touch.clientY;
-            handleInteraction(touch.clientX, touch.clientY);
+            lastInteractX = touch.clientX;
+            lastInteractY = touch.clientY;
+            handleInteraction(touch.clientX, touch.clientY, false);
+        }, { passive: true });
+
+        window.addEventListener('touchmove', (e) => {
+            e.preventDefault(); 
+            const touch = e.touches[0];
+            checkAndTriggerMove(touch.clientX, touch.clientY);
         }, { passive: false });
+
+        window.addEventListener('mouseout', () => { mouseX = -1000; mouseY = -1000; });
+        window.addEventListener('touchend', () => { mouseX = -1000; mouseY = -1000; });
+        window.addEventListener('touchcancel', () => { mouseX = -1000; mouseY = -1000; });
 
         function draw() {
             ctx.shadowBlur = 0;
@@ -222,15 +290,12 @@
 
             for (let i = 0; i < drops.length; i++) {
                 let drop = drops[i];
-                
                 let baseChar = charArray[drop.charIndex];
                 drop.charIndex = (drop.charIndex + 1) % charArray.length;
 
                 const charX = i * fontSize;
                 const charY = drop.y * fontSize;
-                
                 const distToMouse = Math.hypot(charX - mouseX, charY - mouseY);
-                
                 let charToDraw = baseChar;
                 
                 if (distToMouse < fontSize * 5) {
@@ -247,7 +312,6 @@
 
                 if (now < drop.stackUntil) {
                     let topOfStack = drop.stackBaseY - drop.stackedChars.length;
-                    
                     if (drop.y >= topOfStack) {
                         drop.stackedChars.push({
                             y: topOfStack,
@@ -262,7 +326,6 @@
                 } else {
                     drop.stackedChars = [];
                     drop.y++;
-                    
                     if (drop.y * fontSize > canvas.height && Math.random() > 0.975) {
                         drop.y = 0;
                     }
@@ -293,7 +356,7 @@
                 const cat = cats[i];
                 drawCatHead(ctx, cat.x, cat.y, cat.alpha);
                 
-                cat.alpha -= 0.0166;
+                cat.alpha -= 0.020;
                 
                 if (cat.alpha <= 0) {
                     cats.splice(i, 1);
@@ -306,22 +369,8 @@
         window.addEventListener('resize', () => {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            initDrops(); // 手机横竖屏切换时重新初始化列数
+            initDrops(); 
         });
     </script>
 </body>
 </html>
-import type { AppProps } from 'next/app';
-import { SpeedInsights } from '@vercel/speed-insights/next';
- 
-function MyApp({ Component, pageProps }: AppProps) {
-  return (
-    <>
-      <Component {...pageProps} />
-      <SpeedInsights />
-    </>
-  );
-}
- 
-export default MyApp;
-import { SpeedInsights } from "@vercel/speed-insights/next"
